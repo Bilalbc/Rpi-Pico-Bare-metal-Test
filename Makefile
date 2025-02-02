@@ -26,10 +26,7 @@ $(BUILD_DIR)/$(NAME).elf : $(BUILD_DIR)/boot2_padded.o $(BUILD_DIR)/$(NAME).o
 	$(CC) $(LFLAGS) -o $(BUILD_DIR)/$(NAME).elf $(BUILD_DIR)/boot2_padded.o $(BUILD_DIR)/$(NAME).o 
 	
 clean:
-	-del -f $(BUILD_DIR)/$(wildcard *.o)  
-	-del -f $(BUILD_DIR)/$(wildcard *.elf) 
-	-del -f $(BUILD_DIR)/$(wildcard *.uf2)
-	-del -f $(BUILD_DIR)/$(wildcard *.map)
+	del /s /q $(BUILD_DIR)\*
 
 $(BUILD_DIR)/$(NAME).uf2 : $(BUILD_DIR)/$(NAME).elf
 	elf2uf2 $(BUILD_DIR)/$(NAME).elf $(BUILD_DIR)/$(NAME).uf2
