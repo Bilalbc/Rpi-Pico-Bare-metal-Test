@@ -27,6 +27,7 @@ $(BUILD_DIR)/$(NAME).elf : $(BUILD_DIR)/boot2_padded.o $(BUILD_DIR)/$(NAME).o
 	
 clean:
 	del /s /q $(BUILD_DIR)\*
+	copy NUL $(BUILD_DIR)\.gitkeep
 
 $(BUILD_DIR)/$(NAME).uf2 : $(BUILD_DIR)/$(NAME).elf
 	elf2uf2 $(BUILD_DIR)/$(NAME).elf $(BUILD_DIR)/$(NAME).uf2
