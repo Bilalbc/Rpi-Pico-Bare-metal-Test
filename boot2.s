@@ -1,19 +1,36 @@
 .cpu cortex-m0plus
 .thumb
 
+/*  Cortex M0+ uses XIP to directly execute code from QSPI flash 
+    since the pico has no internal flash (only external) QSPI flash must be 
+    configured and XIP mode enabled to execute code flashed to it. 
+*/ 
+
 .section .boot2, "ax"
+    // Disable SSI to allow for Config
     ldr r0, =XIP_SSI_SSIENR
     ldr r1, =0x00000000
     str r1, [r0]
 
+    /*
+      Standard SPI frame format
+      32 bit dataframe size
+      EEPROM_READ mode
+    */
     ldr r0, =XIP_SSI_CTRLR0 ;@   2832 2427 2023 1619 12.15 8.11 4.7 0.3
     ldr r1, =0x001F0300     ;@ 0b0000 0000 0001 1111 0000 0011 0000 0000
     str r1, [r0]
 
+    // Set baud rate 
     ldr r0, =XIP_SSI_BAUDR
     ldr r1, =0x00000008
     str r1, [r0]
 
+    /*
+       SPI command to send in XIP Mode: 0x3 - read command
+       8-bit instruction lenghts
+       24-bit address width
+    */
     ldr r0, =XIP_SSI_SPI_CTRLR0 ;@   2832 2427 2023 1619 12.15 8.11 4.7 0.3
     ldr r1, =0x03000218         ;@ 0b0000 0011 0000 0000 0000 0010 0001 1000
     str r1, [r0]
@@ -22,6 +39,7 @@
     ldr r1, =0x00000000
     str r1, [r0]
 
+    // re-enable SSI after config
     ldr r0, =XIP_SSI_SSIENR
     ldr r1, =0x00000001
     str r1, [r0]
