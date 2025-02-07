@@ -68,6 +68,13 @@ static void irqSysTick(void);
     Deassert reset bit for each subsystem 
     at Initial power-on, subsystems reset is asserted, so we need to deassert the subsystems in 
     use
+
+    CLR is defined under 2.1.2 Atomic Register Access
+        Permits individual fields of a control register to be modified without needing to go through 
+        read-modify-write sequence. 
+        i.e.    instead of writing RESETS_RESET &= ~(1 << 5) to set bit 5 to 0 we can perform it atomically 
+                like: PUT32((RESETS_RESET | CLR), MASK(5));
+        this also helps in preventing race conditions and optimizing performance
 */
 static void resetSubsys() {
     /* IO Bank holds the configurations for all gpio pins 0-29*/
@@ -178,8 +185,8 @@ static void uartTxString(unsigned char* data) {
     Defines Main function for insertion into memory as defined in the Linker Script
 */
 __attribute__( ( used, section( ".boot.entry" ) ) ) int main( void ) {
-    // Reset Subsystems (IO / PADS and UART0)
     init_XOSC();
+    // Reset Subsystems (IO / PADS and UART0)
     resetSubsys();
     init_UART();
     init_GPIO();
