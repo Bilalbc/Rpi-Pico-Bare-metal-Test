@@ -1,7 +1,7 @@
 ARMGNU = arm-none-eabi
 CC = $(ARMGNU)-gcc
 MACH = cortex-m0plus
-NAME = Blinker-Systick
+NAME = BM_Pico
 AFLAGS = --warn --fatal-warnings -mcpu=$(MACH) -g
 CFLAGS = -c -mcpu=$(MACH) -mthumb -std=gnu11 -Wall -O0 
 LFLAGS = -nostdlib -T memmap.ld -Wl,-Map=$(BUILD_DIR)/$(NAME).map

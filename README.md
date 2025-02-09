@@ -1,6 +1,8 @@
 /build: folder used to hold all intermittent files during the creation of the .uf2 file
 
-Blinker_Systick.c: Main program that uses Cortex M0+ Systick module to generate timed interrupts and blink on board LED
+BM_Pico.c: Main program that uses Cortex M0+ Systick module to generate timed interrupts and blink on board LED
+
+BM_Pico.h Header file for c main program
 
 boot2.s: assembly file defining boot stage 2 process for RP2040
 
