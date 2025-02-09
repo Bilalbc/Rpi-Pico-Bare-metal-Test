@@ -1,68 +1,5 @@
 #include <stdlib.h>
-#include <stdint.h>
-
-#define PUT32(address, value) (*(volatile uint32_t*) address) = value
-#define GET32(address) *(volatile uint32_t*)address
-
-#define MASK(x) (1UL << x)
-#define SET (0x2000)
-#define CLR (0x3000)
-
-// Resets
-#define RESETS_BASE 0x4000c000
-#define RESETS_RESET (RESETS_BASE + 0x00)
-#define RESETS_RESET_DONE (RESETS_BASE + 0x08)
-
-#define IO_BANK0_BASE 0x40014000
-#define IO_BANK0_GPIO00_CTRL (IO_BANK0_BASE + 0x04)
-#define IO_BANK0_GPIO01_CTRL (IO_BANK0_BASE + 0x0c)
-#define IO_BANK0_GPIO25_CTRL (IO_BANK0_BASE + 0xcc)
-
-#define SPIO_BASE 0xd0000000
-#define SIO_GPIO_OE (SPIO_BASE + 0x020)
-#define SIO_GPIO_OUT_XOR (SPIO_BASE + 0x01c)
- 
-#define ROSC_BASE 0x40060000
-#define ROSC_STATUS (ROSC_BASE + 0x18)
-
-#define XOSC_BASE 0x40024000
-#define XOSC_CTRL (XOSC_BASE + 0x00)
-#define XOSC_STATUS (XOSC_BASE + 0x04)
-#define XOSC_STARTUP (XOSC_BASE + 0x0c)
-#define XOSC_COUNT (XOSC_BASE + 0x1c)
-
-#define CLK_BASE 0x40008000
-#define CLK_REF_CTRL (CLK_BASE + 0x30)
-#define CLK_REF_DIV (CLK_BASE + 0x34)
-#define CLK_SYS_CTRL (CLK_BASE + 0x3c)
-#define CLK_SYS_DIV (CLK_BASE + 0x40)
-#define CLK_PERI_CTRL (CLK_BASE + 0x48)
-
-#define M0BASE 0xe0000000
-#define SYST_CSR (M0BASE + 0xe010)
-#define SYST_RVR (M0BASE + 0xe014)
-#define SYST_CVR (M0BASE + 0xe018)
-
-#define NVIC_ISER (M0BASE + 0xe100)
-#define NVIC_IPR0 (M0BASE + 0xe400)
-
-#define UART0_BASE 0x40034000
-#define UART0_DR  (UART0_BASE + 0x000)
-#define UART0_FR (UART0_BASE + 0x018)
-#define UART0_IBRD (UART0_BASE + 0x024)
-#define UART0_FBRD (UART0_BASE + 0x028)
-#define UART0_LCR_H (UART0_BASE + 0x02c)
-#define UART0_CR (UART0_BASE + 0x030)
-
-#define TIMER_BASE 0x40054000
-#define TIMER_ALARM0 (TIMER_BASE + 0x10)
-#define TIMER_INTR (TIMER_BASE + 0x34)
-#define TIMER_INTE (TIMER_BASE + 0x38)
-#define TIMER_INTF (TIMER_BASE + 0x3C)
-#define TIMER_INTS (TIMER_BASE + 0x40)
-
-static void irqLoop(void);
-static void irqSysTick(void);
+#include "Blinker-Systick.h"
 
 /*  
     Deassert reset bit for each subsystem 
@@ -78,40 +15,39 @@ static void irqSysTick(void);
 */
 static void resetSubsys() {
     /* IO Bank holds the configurations for all gpio pins 0-29*/
-    PUT32((RESETS_RESET | CLR), MASK(5)); // reset IO_BANK0
-    while(GET32(RESETS_RESET_DONE) & MASK(5) == 0); // await reset done signal from IO_BANK0
+    RESET_CLR->RESET |= MASK(5); // reset IO_BANK0
+    while(RESETS->RESET_DONE & MASK(5) == 0); // await reset done signal from IO_BANK0
 
     /* Reset PADS_BANK0 */
-    PUT32((RESETS_RESET | CLR), (MASK(8)));
-    while(GET32(RESETS_RESET_DONE) & MASK(8) == 0);
+    RESET_CLR->RESET |= MASK(8);
+    while(RESETS->RESET_DONE & MASK(8) == 0);
 
     /* Reset UART0 */
-    PUT32((RESETS_RESET | CLR), MASK(22));
-    while(GET32(RESETS_RESET_DONE) & MASK(22) == 0);
+    RESET_CLR->RESET |= MASK(22);
+    while(RESETS->RESET_DONE & MASK(22) == 0);
 }
 
 static void init_XOSC() {
-    PUT32(XOSC_CTRL, 0xAA0); // Freq_Range set to 1-15 MHz
-    PUT32(XOSC_STARTUP, 0xc4 ); // Startup delay ( default value )
-    PUT32((XOSC_CTRL | SET), 0xFAB000); // CTRL register offset 0, 0xfab -> ENABLE
+    XOSC->CTRL = 0xaa0;
+    XOSC->STARTUP = 0xc4;
+    XOSC_SET->CTRL = 0xFAB000; // atomic, 0xfab -> ENABLE
 
-    while(!(GET32(XOSC_STATUS) & 0x80000000)); // Oscillator is running and stable
+    while(!(XOSC->STATUS & 0x80000000)); // Oscillator is running and stable
 
     // SET XOSC as ref, sys and peri clock 
-    PUT32(CLK_REF_CTRL, MASK(1)); // CLK_REF source = XOSC_CLKSRC
-    PUT32(CLK_SYS_CTRL, 0x0); // CLK SYS source = CLK_REF
-    PUT32(CLK_REF_DIV, MASK(8)); // CLK SYS source = CLK_REF
-    PUT32(CLK_PERI_CTRL, (MASK(11) | MASK(7))); // MASK(11) -> ENABLE, MASK(7) ->XOSC_CLKSRC
+    CLOCK->REF_CTRL = MASK(1); // CLK_REF source = XOSC_CLKSRC
+    CLOCK->SYS_CTRL = 0x0; // CLK SYS source = CLK_REF
+    CLOCK->REF_DIV = MASK(8); // CLK SYS source = CLK_REF
+    CLOCK->PERI_CTRL = (MASK(11) | MASK(7)); // MASK(11) -> ENABLE, MASK(7) ->XOSC_CLKSRC
 }
-
 
 static void init_GPIO() {
     // Set GPIO0 and 1 to function 2 (UART0)
-    PUT32((IO_BANK0_GPIO00_CTRL), 2);
-    PUT32((IO_BANK0_GPIO01_CTRL), 2);
+    GPIO0->CTRL = 2;
+    GPIO1->CTRL = 2;
 
-    PUT32(IO_BANK0_GPIO25_CTRL, 0x05); // FUNCSEL = 5 (function 5 from SIO table, 2.19.2)
-    PUT32(SIO_GPIO_OE, MASK(25)); // SIO GPIO OE Register (2.3.1.7)
+    GPIO25->CTRL = 0x05;
+    SIO->GPIO_OE = MASK(25);  // SIO GPIO OE Register (2.3.1.7)
 }
 
 /*  Unused method to create timer
@@ -124,9 +60,9 @@ static void init_GPIO() {
 static void init_timer() {
     #define INT_FREQ_US 12000000/4 // 0.5 seconds at 1us period
 
-    PUT32(TIMER_INTE, MASK(0)); // interupt enable for alarm_0 for timer
-    PUT32(NVIC_ISER, MASK(0)); // Enables interrupts for IRQ 0 (IRQ 0 -> TIMER_IRQ_0 on NVIC)
-    PUT32(TIMER_ALARM0, INT_FREQ_US); // load value into alarm_0 to trigger interrupt
+    TIMER->INTE = MASK(0); // interupt enable for alarm_0 for timer
+    CORTEX_M0->NVIC_ISER = MASK(0);  // Enables interrupts for IRQ 0 (IRQ 0 -> TIMER_IRQ_0 on NVIC)
+    TIMER->ALARM0 = INT_FREQ_US;// load value into alarm_0 to trigger interrupt
 }
 
 static void init_UART() {
@@ -155,22 +91,23 @@ static void init_UART() {
         (12 * 10^6) / (16 * 115200) - 6.51
         integer = 6 | fraction = (0.51 (64) + 0.5) = 33
     */
-    PUT32(UART0_IBRD, 6);
-    PUT32(UART0_FBRD, 33);
+
+    UART0->IBRD = 6;
+    UART0->FBRD = 33;
     /*  Enable FIFOs, Format */
-    PUT32(UART0_LCR_H, (MASK(6) | MASK(5) | MASK(4))); // 8 Bit word Length Enable FIFO
+    UART0->LCR_H = (MASK(6) | MASK(5) | MASK(4)); // 8 Bit word Length Enable FIFO
     /*  Set enable Bits in Control Register */
-    PUT32(UART0_CR, (MASK(9) | MASK(8) | MASK(0))); // RXE, TXE. UARTEN
+    UART0->CR = (MASK(9) | MASK(8) | MASK(0)); // RXE, TXE. UARTEN
 }
 
 static unsigned char uartRx(void) {
-    while((GET32(UART0_FR) & MASK(4)) != 0); // Wait while the FIFO Register is Empty 
-    return((char) GET32(UART0_DR));
+    while((UART0->FR & MASK(4)) != 0); // Wait while the FIFO Register is Empty 
+    return((char) UART0->DR);
 }
 
 static void uartTx(unsigned char data) {
-    while((GET32(UART0_FR) & MASK(5)) != 0); // Wait while the FIFO Register is full
-    PUT32(UART0_DR, data);
+    while((UART0->FR & MASK(5)) != 0); // Wait while the FIFO Register is full
+    UART0->DR = data;
 }
 
 static void uartTxString(unsigned char* data) {
@@ -178,9 +115,24 @@ static void uartTxString(unsigned char* data) {
         uartTx(*data);
         data++;
     }
-    
 }
 
+/*  
+    Method to send the contents of a register over uart  
+    Primarily used for debugging
+*/
+static void uartTxRegVal(uint32_t regVal) {
+    char hexChars[] = "0123456789ABCDEF"; // List of hex characters to map with
+    char hexAsString[9];
+
+    for(int i = 0; i < 8; i++) {
+        hexAsString[i] = hexChars[regVal & 0xF]; // get least significant 4 bits 
+        regVal >>= 4; // right shift 4
+    }
+
+    hexAsString[8] = '\0'; // add string terminator
+    uartTxString(hexAsString);
+}
 /*
     Defines Main function for insertion into memory as defined in the Linker Script
 */
@@ -194,9 +146,8 @@ __attribute__( ( used, section( ".boot.entry" ) ) ) int main( void ) {
     unsigned char *start_message = "Hello World";
 
     #define COUNT_250MS 12000000/4 //12 MHz clk, 12000000 ticks = 1 sec. 250 Ms = 1/4
-    PUT32(SYST_RVR, COUNT_250MS); // Load value into counter register
-    PUT32(SYST_CSR, (MASK(2) | MASK(1) | MASK(0))); // set to processor clock and start count
-
+    CORTEX_M0->SYST_RVR = COUNT_250MS;  // Load value into counter register
+    CORTEX_M0->SYST_CSR = (MASK(2) | MASK(1) | MASK(0)); // set to processor clock and start count
     uartTxString(start_message);
 
     while (1) { 
@@ -242,7 +193,7 @@ static void irqLoop(void) {
 
 /* Handler of the Tick interrupt */
 static void irqSysTick(void) {
-    PUT32(SIO_GPIO_OUT_XOR, MASK(25));  // XOR the LED pin
+    SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
 }
 
 
