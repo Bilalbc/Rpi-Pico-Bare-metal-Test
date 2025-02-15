@@ -13,7 +13,49 @@
                 like: PUT32((RESETS_RESET | CLR), MASK(5));
         this also helps in preventing race conditions and optimizing performance
 */
-static void resetSubsys() {
+static void resetSubsys(){}
+
+static void init_PLL() {
+    /*  Setup System PLL 
+        Configuration: 
+                              REF     FBDIV VCO      POSTDIV
+            PLL SYS: 12 / 1 = 12MHz * 125 = 1500MHz / 6 / 2 = 125MHz
+
+        Setup Sequence: 
+            Program Feedback Divider
+            Turn on Main power and VCO
+            wait for VCO to lock 
+            set up post dividers and turn them on
+    */
+    RESET_CLR->RESET |= MASK(12); // Reset PLL_SYS
+    while(RESETS->RESET_DONE & MASK(12) == 0);
+
+    PLL_SYS->FBDIV_INT = 125; // Set Feedback divisor to 125
+    PLL_SYS->PWR &= ~(MASK(5) | MASK(0)); // Turn on the main power and VCO
+    while((PLL_SYS->CS & MASK(31)) == 0); // Wait for PLL to lock
+
+    PLL_SYS->PRIM = (MASK_VAL(6, 16) | MASK_VAL(2, 12)); // POSTDIV1 = 6 | POSTDIV2 = 2
+
+    PLL_SYS->PWR &= ~(MASK(3)); // Turn on post Dividers
+}
+static void init_Clocks() {
+    XOSC->CTRL = 0xaa0;
+    XOSC->STARTUP = 0xc4;
+    XOSC_SET->CTRL = 0xFAB000; // atomic, 0xfab -> ENABLE
+
+    while(!(XOSC->STATUS & 0x80000000)); // Oscillator is running and stable
+
+    init_PLL();
+
+    // SET XOSC as ref, sys and peri clock 
+    CLOCK->REF_CTRL = MASK(1); // CLK_REF source = XOSC_CLKSRC
+    // Leave CLK_SYS as default (CLKSRC_PLL_SYS -> 125MHz)
+    // CLOCK->SYS_CTRL |= MASK(0); // CLK SYS source = CLK_REF
+    CLOCK->REF_DIV = MASK(8); // divide by 1
+    CLOCK->PERI_CTRL = (MASK(11) | MASK(5)); // MASK(11) -> ENABLE, [7:5] = 001 -> CLKSRC_PLL_SYS (125MHz)
+}
+
+static void init_GPIO() {
     /* IO Bank holds the configurations for all gpio pins 0-29*/
     RESET_CLR->RESET |= MASK(5); // reset IO_BANK0
     while(RESETS->RESET_DONE & MASK(5) == 0); // await reset done signal from IO_BANK0
@@ -25,23 +67,7 @@ static void resetSubsys() {
     /* Reset UART0 */
     RESET_CLR->RESET |= MASK(22);
     while(RESETS->RESET_DONE & MASK(22) == 0);
-}
 
-static void init_XOSC() {
-    XOSC->CTRL = 0xaa0;
-    XOSC->STARTUP = 0xc4;
-    XOSC_SET->CTRL = 0xFAB000; // atomic, 0xfab -> ENABLE
-
-    while(!(XOSC->STATUS & 0x80000000)); // Oscillator is running and stable
-
-    // SET XOSC as ref, sys and peri clock 
-    CLOCK->REF_CTRL = MASK(1); // CLK_REF source = XOSC_CLKSRC
-    CLOCK->SYS_CTRL = 0x0; // CLK SYS source = CLK_REF
-    CLOCK->REF_DIV = MASK(8); // CLK SYS source = CLK_REF
-    CLOCK->PERI_CTRL = (MASK(11) | MASK(7)); // MASK(11) -> ENABLE, MASK(7) ->XOSC_CLKSRC
-}
-
-static void init_GPIO() {
     // Set GPIO0 and 1 to function 2 (UART0)
     GPIO0->CTRL = 2;
     GPIO1->CTRL = 2;
@@ -87,15 +113,16 @@ static void init_UART() {
     */
 
     /*  Set baud rate divisor 
-        clk_peri = 12MHz, desired Baud Rate = 115200
-        (12 * 10^6) / (16 * 115200) - 6.51
-        integer = 6 | fraction = (0.51 (64) + 0.5) = 33
+        clk_peri = 125 MHz, desired Baud Rate = 115200
+        (125 * 10^6) / (16 * 115200) - 67.817
+        integer = 67 | fraction = (0.817 (64) + 0.5) = 52
     */
-
-    UART0->IBRD = 6;
-    UART0->FBRD = 33;
+    UART0->IBRD = 67;
+    UART0->FBRD = 52;
+   
     /*  Enable FIFOs, Format */
     UART0->LCR_H = (MASK(6) | MASK(5) | MASK(4)); // 8 Bit word Length Enable FIFO
+    
     /*  Set enable Bits in Control Register */
     UART0->CR = (MASK(9) | MASK(8) | MASK(0)); // RXE, TXE. UARTEN
 }
@@ -136,12 +163,12 @@ static void uartTxRegVal(uint32_t regVal) {
 /*
     Defines Main function for insertion into memory as defined in the Linker Script
 */
-__attribute__( ( used, section( ".boot.entry" ) ) ) int main( void ) {
-    init_XOSC();
+__attribute__((used, section( ".boot.entry" ))) int main(void) {
+    init_Clocks();
     // Reset Subsystems (IO / PADS and UART0)
-    resetSubsys();
-    init_UART();
     init_GPIO();
+    init_UART();
+    init_SPI();
 
     unsigned char *start_message = "Hello World";
 
@@ -167,7 +194,7 @@ __attribute__( ( used, section( ".boot.entry" ) ) ) int main( void ) {
         section:    creates a section for the compiler to place within the flash memory as defined in the linker script
                     This section is defined as ".vectors" and specifies the handlers for different interrupt routines
 */
-__attribute__( ( used, section( ".vectors" ) ) ) void ( *vectors[] )( void ) ={
+__attribute__((used, section(".vectors"))) void (*vectors[])(void) ={
     0,          //  0 stack pointer value (NA)
     irqLoop,    //  1 reset (NA)
     irqLoop,    //  2 NMI
@@ -223,18 +250,29 @@ static void init_USB() {
 /* no need to init SPI for communication with PC, we have USB peripheral to do so*/
 static void init_SPI() {
     /* 
+        4 wires to communicate between master and slave 
+            - SCLK - used to synchronize
+            - MOSI (master out slave in)
+            - MISO (master in slave out)
+            - CS (chip select) - what peripheral we are communicating with 
+
         SPI: high speed, on-board, full duplex. used for chip-to-chip communication (flash memory, eeprom ...)
         reset PrimeCell SSP (ARM Synchronous Serial Port architecture)
         must be initd when disabled 
         SSPCLK(clk_peri) max freq is 133MHz
+        PCLK (clk_sys)
         SSPCR0 and SSPCR1 must be programed to set controller as master or slave under a given protocol 
         bitrate, derived from external SSPCLK, programmed through SSPCPSR register
         can permit FIFO service request to interrupt CPU. transmission and recieve begins on SSPTXD and SSPRXD pins 
         SSPCLK must be <= PCLK
-        SSPCLK must be at least 12x max expected freq of SSPCLKIN (external master) - slave mode 
-            in master mode, the ratio becomes 2x
+        SSPCLK rates:
             master mode peak bit rate (133MHz) = 62.5Mbps (SSPCPSR programmed with value of 2) and SCR[7:0] in SSPCR0 programmed with 0
             in slave mode, 133/12 = 11.083Mbps. SSPCPSR can be programmed with value of 12 and SCR[7:0] in SSPCR0 can be 0. 
+
+        In Master Mode, the SSPCLK to SSPCLKOUT frequency ratio is at minimum 2x
+        Because of setup and hold times on SSPRXD, SSPCLK must be atleast 12x faster than Maximum expected Hz of SSPCLKIN
+            - LSM6DSOX SPI Max CLK freq = 10MHz (4.4.1 of LSM6DSOX datasheet)
+            - Therefor, SSPCLK must be atleast 120 Mhz 
 
         Control Registers: 
             - SSPCR0
@@ -258,5 +296,21 @@ static void init_SPI() {
             - SSPCLKOUT is inactive while SSP is idle, and becomes active when data is transmitted or recieved 
             - 
             
-    */
+        Configuration: 
+            - Reset 
+            - configure SSPCR0 and SSPCR1 
+
+    */    
+    /* Reset SPI0 */
+    RESET_CLR->RESET |= MASK(16);
+    while(RESETS->RESET_DONE & MASK(16) == 0);
+
+    // Init while disabled 
+    SPI0->SSPCR0 = (MASK(4) | MASK(2) | MASK(1) | MASK(0)); // TI Synchronous Serial Frame Format, 8-bit data
+    SPI0->SSPCR1 = (MASK(0)); // LoopBack mode Enable for Testing 
+
+
+
+    SPI0->SSPCR1 = (MASK(1)); // Enable SSP operation 
+
 }
