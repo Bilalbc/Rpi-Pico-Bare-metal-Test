@@ -102,7 +102,6 @@ typedef struct {
     volatile uint32_t   SSPRIS;           // 0ffset: 0x018
     volatile uint32_t   SSPMIS;           // 0ffset: 0x01c
     volatile uint32_t   SSPICR;           // 0ffset: 0x020
-    volatile uint32_t   SSPDMACR;         // 0ffset: 0x024
 } SSP_t;
 
 #define PLL_SYS_BASE    0x40028000     
@@ -141,8 +140,10 @@ typedef struct{
 /* Flag Registers */
 
 /* Functions */
+static void irqHardFault(void);
 static void irqLoop(void);
 static void irqSysTick(void);
+static void irqSPI0(void);
 
 static void uartTxString(unsigned char* data);
 static void uartTx(unsigned char data);

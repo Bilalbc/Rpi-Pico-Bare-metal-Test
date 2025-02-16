@@ -180,6 +180,13 @@ static void init_SPI() {
             - Reset 
             - configure SSPCR0 and SSPCR1 
 
+        Interrupts: 
+            - TxINTR : Transmit FIFO interrupt
+            - RxINTR : Recieve FIFO interrupt
+            - RTINTR : Recieve Trimeout interrupt
+            - RORINTR : Recieve Overrun interrupt
+            all are default to masked interrupts
+
     */    
     /* Reset SPI0 */
     RESET_CLR->RESET |= MASK(16);
@@ -197,6 +204,8 @@ static void init_SPI() {
     // SCR value is unchanged from 0
 
     /* Configure clk, MISO and MOSI pins */
+
+    /* initialize interrupts */
 
     SPI0->SSPCR1 |= MASK(1); // Enable SSP operation 
 }
@@ -284,15 +293,20 @@ __attribute__((used, section( ".boot.entry" ))) int main(void) {
         section:    creates a section for the compiler to place within the flash memory as defined in the linker script
                     This section is defined as ".vectors" and specifies the handlers for different interrupt routines
 
+    void (*vectors[])(void) - Defomes 'vectors' as an array of function pointers that take no args and return void
+
+    when an expcetion occurs, the VTOR reg is used to reference this table, and then the process skips to the function 
+    defined by this table given the interrupt source. if the function is 0, we attempt to branch to address 0x00000000
+    which is non valid executable memory and so causes a HardFault exception 
+     
     Exceptions 0-15 processor related exceptions
     Excpetions 16-25 are handled by IRQ through NVIC
-
 */
 __attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
     0,                  //  0 stack pointer value (NA)
-    0,                  //  1 reset (NA)
-    0,                  //  2 NMI
-    irqLoop,            //  3 hardFault
+    irqLoop,            //  1 reset (NA)
+    irqLoop,            //  2 NMI
+    irqHardFault,       //  3 hardFault
     0,                  //  4 reserved
     0,                  //  5 reserved
     0,                  //  6 reserved
@@ -300,11 +314,11 @@ __attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
     0,                  //  8 reserved
     0,                  //  9 reserved
     0,                  // 10 reserved
-    0,                  // 11 SVCall
+    irqLoop,            // 11 SVCall
     0,                  // 12 reserved
     0,                  // 13 reserved
-    0,                  // 14 pendSV
-    0,                  // 15 sysTick
+    irqLoop,            // 14 pendSV
+    irqSysTick,         // 15 sysTick
     irqLoop,            //  0 TIMER_IRQ_0 (16)
     irqLoop,            //  1 TIMER_IRQ_1
     irqLoop,            //  2 TIMER_IRQ_2
@@ -333,21 +347,30 @@ __attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
     irqLoop,            // 25 RTC_IRQ 
 };
 
+/* Handle Hard Fault */
+static void irqHardFault(void) {
+    uartTxString("HARDFAULT\n");
+    while(1);
+}
+
 /* Handle unconfigured interrupts*/
 static void irqLoop(void) {
-    while (1);
+    uartTxString("LOOPING\n");
+    SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
 }
 
 /* Handler of the Tick interrupt */
 static void irqSysTick(void) {
+    uartTxString("BLINKING\n");
     SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
 }
 
 /* Handle SPI0 Interrupts */
-static void irqSPI0() {
+static void irqSPI0(void) {
     // clear interrupt
+    uartTxString("SPI0\n");
+    SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
 }
-
 
 static void init_I2C() {
     /*

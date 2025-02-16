@@ -65,8 +65,8 @@ _copyToRam:
                             // RAM ranges from 0x20000000 to 0x2003FFFF (265KB)
     mov sp, r0
 
-    @; Regardless of the address where the vector table and main function are stored in FLASH (as long as it is before 0x1000100 | 0x1000)
-    @; It will be copied into RAM starting from 0x20000100. 
+    // Regardless of the address where the vector table and main function are stored in FLASH (as long as it is before 0x1000100 | 0x1000)
+    // It will be copied into RAM starting from 0x20000100. 
     ldr r0, =0x20000201;    // Address is odd (0x201) to indicate the instructions are thumb (function at 0x200, and LSB(1) indicates it is thumb)
     bx  r0                  // branch to the address in r0 (main function)
 
