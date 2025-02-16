@@ -144,4 +144,11 @@ typedef struct{
 static void irqLoop(void);
 static void irqSysTick(void);
 
+static void uartTxString(unsigned char* data);
+static void uartTx(unsigned char data);
+static unsigned char uartRx(void);
+static void uartTxRegVal(uint32_t regVal);
+
+
+
 #endif

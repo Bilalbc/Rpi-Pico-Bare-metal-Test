@@ -38,6 +38,7 @@ static void init_PLL() {
 
     PLL_SYS->PWR &= ~(MASK(3)); // Turn on post Dividers
 }
+
 static void init_Clocks() {
     XOSC->CTRL = 0xaa0;
     XOSC->STARTUP = 0xc4;
@@ -127,127 +128,6 @@ static void init_UART() {
     UART0->CR = (MASK(9) | MASK(8) | MASK(0)); // RXE, TXE. UARTEN
 }
 
-static unsigned char uartRx(void) {
-    while((UART0->FR & MASK(4)) != 0); // Wait while the FIFO Register is Empty 
-    return((char) UART0->DR);
-}
-
-static void uartTx(unsigned char data) {
-    while((UART0->FR & MASK(5)) != 0); // Wait while the FIFO Register is full
-    UART0->DR = data;
-}
-
-static void uartTxString(unsigned char* data) {
-    while(*data != '\0') {
-        uartTx(*data);
-        data++;
-    }
-}
-
-/*  
-    Method to send the contents of a register over uart  
-    Primarily used for debugging
-*/
-static void uartTxRegVal(uint32_t regVal) {
-    char hexChars[] = "0123456789ABCDEF"; // List of hex characters to map with
-    char hexAsString[9];
-
-    for(int i = 0; i < 8; i++) {
-        hexAsString[i] = hexChars[regVal & 0xF]; // get least significant 4 bits 
-        regVal >>= 4; // right shift 4
-    }
-
-    hexAsString[8] = '\0'; // add string terminator
-    uartTxString(hexAsString);
-}
-/*
-    Defines Main function for insertion into memory as defined in the Linker Script
-*/
-__attribute__((used, section( ".boot.entry" ))) int main(void) {
-    init_Clocks();
-    // Reset Subsystems (IO / PADS and UART0)
-    init_GPIO();
-    init_UART();
-    init_SPI();
-
-    unsigned char *start_message = "Hello World";
-
-    #define COUNT_250MS 12000000/4 //12 MHz clk, 12000000 ticks = 1 sec. 250 Ms = 1/4
-    CORTEX_M0->SYST_RVR = COUNT_250MS;  // Load value into counter register
-    CORTEX_M0->SYST_CSR = (MASK(2) | MASK(1) | MASK(0)); // set to processor clock and start count
-    uartTxString(start_message);
-
-    while (1) { 
-        uartTxString(" --> ");
-        uartTx(uartRx()); // Wait for input (bloking function)
-        uartTxString("\r\n");
-    }
-
-    return (0);
-}
-
-/* Vector Table 
-    GCC Syntax for specifying an attribute to the compiler
-    two attributes defined in this declaration: 
-        used:       ensures the function is linked by the compiler, especially since it is not referenced in code  
-                    but is an important definition to be included
-        section:    creates a section for the compiler to place within the flash memory as defined in the linker script
-                    This section is defined as ".vectors" and specifies the handlers for different interrupt routines
-*/
-__attribute__((used, section(".vectors"))) void (*vectors[])(void) ={
-    0,          //  0 stack pointer value (NA)
-    irqLoop,    //  1 reset (NA)
-    irqLoop,    //  2 NMI
-    irqLoop,    //  3 hardFault
-    0,          //  4 reserved
-    0,          //  5 reserved
-    0,          //  6 reserved
-    0,          //  7 reserved
-    0,          //  8 reserved
-    0,          //  9 reserved
-    0,          // 10 reserved
-    irqLoop,    // 11 SVCall
-    0,          // 12 reserved
-    0,          // 13 reserved
-    irqLoop,    // 14 pendSV
-    irqSysTick, // 15 sysTick
-};
-
-/* Handle unconfigured interrupts*/
-static void irqLoop(void) {
-    while (1);
-}
-
-/* Handler of the Tick interrupt */
-static void irqSysTick(void) {
-    SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
-}
-
-
-static void init_I2C() {
-    /*
-        I2C: low speed, on-board. chip-to-chip communication with simple sensors
-    */
-}
-
-static void init_USB() {
-    /*
-        controller requires clk_usb to run at 48MHz, and sys_clk must be >- 48 MHz
-        Max data rate for USB full speed is 12Mbps
-        4kB of DPSRAM (dual port SRAM) - used to store controll registers and data buffers 
-            - 32-bit wide memory at address 0 of USB controler (0x50100000)
-        DPSRAM should be considered asynchronous and not atomic 
-            - processor and usb can both access (read/wrtite) at the same time as eachother
-            - available lit in buffer control register is used to indicate who has ownership 
-            - Process
-                - write buffer information to buffer control register
-                - nop (no op) for some clk_sys cycles to ensure that atleast one clk_usb cycle has passed
-                    - f_clk_sys/F_clk_usb = how many clk_sys cycles to nop for 
-                - set Availbale bit 
-    */
-}
-
-/* no need to init SPI for communication with PC, we have USB peripheral to do so*/
 static void init_SPI() {
     /* 
         4 wires to communicate between master and slave 
@@ -307,10 +187,187 @@ static void init_SPI() {
 
     // Init while disabled 
     SPI0->SSPCR0 = (MASK(4) | MASK(2) | MASK(1) | MASK(0)); // TI Synchronous Serial Frame Format, 8-bit data
-    SPI0->SSPCR1 = (MASK(0)); // LoopBack mode Enable for Testing 
+    SPI0->SSPCR1 |= (MASK(0)); // LoopBack mode Enable for Testing 
+
+    /*
+        SSPCLK(min) >= 2 x SSPCLKOUT(max) in Master
+        SSPCLK(max) <= 254 * 256 * SSPCLKOUT(min) in Master
+    */
+    SPI0->SSPCPSR = MASK_VAL(2, 0); // Configure peak bit rate for master mode (2-254)
+    // SCR value is unchanged from 0
+
+    /* Configure clk, MISO and MOSI pins */
+
+    SPI0->SSPCR1 |= MASK(1); // Enable SSP operation 
+}
+
+static unsigned char spiRx(void) {
+    while((SPI0->SSPSR & MASK(2)) == 0);
+    uartTxString("RECIEVED");
+    return (char) SPI0->SSPDR;
+
+}
+
+static void spiTx(unsigned char data) {
+    while((SPI0->SSPSR & MASK(1)) == 0);
+    SPI0->SSPDR = (0x00ff & data); 
+}
+
+static unsigned char uartRx(void) {
+    while((UART0->FR & MASK(4)) != 0); // Wait while the FIFO Register is Empty 
+    return((char) UART0->DR);
+}
+
+static void uartTx(unsigned char data) {
+    while((UART0->FR & MASK(5)) != 0); // Wait while the FIFO Register is full
+    UART0->DR = data;
+}
+
+static void uartTxString(unsigned char* data) {
+    while(*data != '\0') {
+        uartTx(*data);
+        data++;
+    }
+}
+
+/*  
+    Method to send the contents of a register over uart  
+    Primarily used for debugging
+*/
+static void uartTxRegVal(uint32_t regVal) {
+    char hexChars[] = "0123456789ABCDEF"; // List of hex characters to map with
+    char hexAsString[9];
+
+    for(int i = 0; i < 8; i++) {
+        hexAsString[i] = hexChars[regVal & 0xF]; // get least significant 4 bits 
+        regVal >>= 4; // right shift 4
+    }
+
+    hexAsString[8] = '\0'; // add string terminator
+    uartTxString(hexAsString);
+}
+/*
+    Defines Main function for insertion into memory as defined in the Linker Script
+*/
+__attribute__((used, section( ".boot.entry" ))) int main(void) {
+    init_Clocks();
+    // Reset Subsystems (IO / PADS and UART0)
+    init_GPIO();
+    init_UART();
+    init_SPI();
+
+    unsigned char *start_message = "Hello World";
+
+    #define COUNT_250MS 12000000/4 //12 MHz clk, 12000000 ticks = 1 sec. 250 Ms = 1/4
+    CORTEX_M0->SYST_RVR = COUNT_250MS;  // Load value into counter register
+    CORTEX_M0->SYST_CSR = (MASK(2) | MASK(1) | MASK(0)); // set to processor clock and start count
+    uartTxString(start_message);
+
+    while (1) { 
+        uartTxString(" --> ");
+        uartTxString(" SENDING 'a' over SPI: ");
+        spiTx('a');
+        uartTxString("\r\n");
+        uartTxString(" RECIEVING over SPI: ");
+        uartTx(spiRx());
+        uartTxString("\r\n");
+        uartTx(uartRx()); // Wait for input (bloking function)
+    }
+    return (0);
+}
+
+/* Vector Table 
+    GCC Syntax for specifying an attribute to the compiler
+    two attributes defined in this declaration: 
+        used:       ensures the function is linked by the compiler, especially since it is not referenced in code  
+                    but is an important definition to be included
+        section:    creates a section for the compiler to place within the flash memory as defined in the linker script
+                    This section is defined as ".vectors" and specifies the handlers for different interrupt routines
+
+    Exceptions 0-15 processor related exceptions
+    Excpetions 16-25 are handled by IRQ through NVIC
+
+*/
+__attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
+    0,                  //  0 stack pointer value (NA)
+    0,                  //  1 reset (NA)
+    0,                  //  2 NMI
+    irqLoop,            //  3 hardFault
+    0,                  //  4 reserved
+    0,                  //  5 reserved
+    0,                  //  6 reserved
+    0,                  //  7 reserved
+    0,                  //  8 reserved
+    0,                  //  9 reserved
+    0,                  // 10 reserved
+    0,                  // 11 SVCall
+    0,                  // 12 reserved
+    0,                  // 13 reserved
+    0,                  // 14 pendSV
+    0,                  // 15 sysTick
+    irqLoop,            //  0 TIMER_IRQ_0 (16)
+    irqLoop,            //  1 TIMER_IRQ_1
+    irqLoop,            //  2 TIMER_IRQ_2
+    irqLoop,            //  3 TIMER_IRQ_3
+    irqLoop,            //  4 PWM_IRQ_WRAP
+    irqLoop,            //  5 USBCTRL_IRQ
+    irqLoop,            //  6 XIP_IRQ
+    irqLoop,            //  7 PIO0_IRQ_0
+    irqLoop,            //  8 PIO0_IRQ_1
+    irqLoop,            //  9 PIO1_IRQ_0
+    irqLoop,            // 10 PIO1_IRQ_1
+    irqLoop,            // 11 DMA_IRQ_0
+    irqLoop,            // 12 DMA_IRQ_1
+    irqLoop,            // 13 IO_IRQ_BANK0
+    irqLoop,            // 14 IO_IRQ_QSPI
+    irqLoop,            // 15 SIO_IRQ_PROC0
+    irqLoop,            // 16 SIO_IRQ_PROC1
+    irqLoop,            // 17 CLOCKS_IRQ
+    irqSPI0,            // 18 SPI0_IRQ
+    irqLoop,            // 19 SPI1_IRQ
+    irqLoop,            // 20 UART0_IRQ
+    irqLoop,            // 21 UART1_IRQ
+    irqLoop,            // 22 ADC_IRQ_FIFO
+    irqLoop,            // 23 I2C0_IRQ
+    irqLoop,            // 24 I2C1_IRQ
+    irqLoop,            // 25 RTC_IRQ 
+};
+
+/* Handle unconfigured interrupts*/
+static void irqLoop(void) {
+    while (1);
+}
+
+/* Handler of the Tick interrupt */
+static void irqSysTick(void) {
+    SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
+}
+
+/* Handle SPI0 Interrupts */
+static void irqSPI0() {
+    // clear interrupt
+}
 
 
+static void init_I2C() {
+    /*
+        I2C: low speed, on-board. chip-to-chip communication with simple sensors
+    */
+}
 
-    SPI0->SSPCR1 = (MASK(1)); // Enable SSP operation 
-
+static void init_USB() {
+    /*
+        controller requires clk_usb to run at 48MHz, and sys_clk must be >- 48 MHz
+        Max data rate for USB full speed is 12Mbps
+        4kB of DPSRAM (dual port SRAM) - used to store controll registers and data buffers 
+            - 32-bit wide memory at address 0 of USB controler (0x50100000)
+        DPSRAM should be considered asynchronous and not atomic 
+            - processor and usb can both access (read/wrtite) at the same time as eachother
+            - available lit in buffer control register is used to indicate who has ownership 
+            - Process
+                - write buffer information to buffer control register
+                - nop (no op) for some clk_sys cycles to ensure that atleast one clk_usb cycle has passed
+                    - f_clk_sys/F_clk_usb = how many clk_sys cycles to nop for 
+                - set Availbale bit 
+    */
 }
