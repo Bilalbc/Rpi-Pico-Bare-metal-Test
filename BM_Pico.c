@@ -205,8 +205,6 @@ static void init_SPI() {
 
     /* Configure clk, MISO and MOSI pins */
 
-    /* initialize interrupts */
-
     SPI0->SSPCR1 |= MASK(1); // Enable SSP operation 
 }
 
@@ -214,12 +212,11 @@ static unsigned char spiRx(void) {
     while((SPI0->SSPSR & MASK(2)) == 0);
     uartTxString("RECIEVED");
     return (char) SPI0->SSPDR;
-
 }
 
 static void spiTx(unsigned char data) {
     while((SPI0->SSPSR & MASK(1)) == 0);
-    SPI0->SSPDR = (0x00ff & data); 
+    SPI0->SSPDR = (0x00ff & data); // right justify data for data less than 16 bits
 }
 
 static unsigned char uartRx(void) {
@@ -247,7 +244,7 @@ static void uartTxRegVal(uint32_t regVal) {
     char hexChars[] = "0123456789ABCDEF"; // List of hex characters to map with
     char hexAsString[9];
 
-    for(int i = 0; i < 8; i++) {
+    for(int i = 7; i >= 0; i--) {
         hexAsString[i] = hexChars[regVal & 0xF]; // get least significant 4 bits 
         regVal >>= 4; // right shift 4
     }
@@ -298,11 +295,14 @@ __attribute__((used, section( ".boot.entry" ))) int main(void) {
     when an expcetion occurs, the VTOR reg is used to reference this table, and then the process skips to the function 
     defined by this table given the interrupt source. if the function is 0, we attempt to branch to address 0x00000000
     which is non valid executable memory and so causes a HardFault exception 
-     
+
+    VTOR Reg points to this table, as defined in memmap.ld and boot2.s
+    
     Exceptions 0-15 processor related exceptions
-    Excpetions 16-25 are handled by IRQ through NVIC
+    Excpetions 16-25 are peripheral interrupts
 */
 __attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
+    /* Exceptions 0-15*/
     0,                  //  0 stack pointer value (NA)
     irqLoop,            //  1 reset (NA)
     irqLoop,            //  2 NMI
@@ -319,6 +319,7 @@ __attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
     0,                  // 13 reserved
     irqLoop,            // 14 pendSV
     irqSysTick,         // 15 sysTick
+    /* External Interrupts */
     irqLoop,            //  0 TIMER_IRQ_0 (16)
     irqLoop,            //  1 TIMER_IRQ_1
     irqLoop,            //  2 TIMER_IRQ_2
@@ -337,7 +338,7 @@ __attribute__((used, section(".vectors"))) void (*vectors[])(void) = {
     irqLoop,            // 15 SIO_IRQ_PROC0
     irqLoop,            // 16 SIO_IRQ_PROC1
     irqLoop,            // 17 CLOCKS_IRQ
-    irqSPI0,            // 18 SPI0_IRQ
+    irqLoop,            // 18 SPI0_IRQ
     irqLoop,            // 19 SPI1_IRQ
     irqLoop,            // 20 UART0_IRQ
     irqLoop,            // 21 UART1_IRQ
@@ -361,14 +362,6 @@ static void irqLoop(void) {
 
 /* Handler of the Tick interrupt */
 static void irqSysTick(void) {
-    uartTxString("BLINKING\n");
-    SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
-}
-
-/* Handle SPI0 Interrupts */
-static void irqSPI0(void) {
-    // clear interrupt
-    uartTxString("SPI0\n");
     SIO->GPIO_OUT_XOR = MASK(25);  // XOR the LED pin
 }
 

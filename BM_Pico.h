@@ -76,15 +76,21 @@ typedef struct {
     volatile uint32_t   SYST_CSR;         // 0ffset: 0xe010
     volatile uint32_t   SYST_RVR;         // 0ffset: 0xe014
     volatile uint32_t   SYST_CVR;         // 0ffset: 0xe018
-    volatile uint32_t   RESERVED1[57];    // Reserved: 0xe01c - 0xe0fc
+    volatile uint32_t   RESERVED_1[57];    // Reserved: 0xe01c - 0xe0fc
     volatile uint32_t   NVIC_ISER;        // Offset: 0xe100
+    volatile uint32_t   RESERVED_2[31];    // Reserved: 0xe104 - 0xe180
+    volatile uint32_t   NVIC_ICER;        // Offset: 0xe180
+    volatile uint32_t   RESERVED_3[31];    // Reserved: 0xe184 - 0xe200
+    volatile uint32_t   NVIC_ISPR;        // Offset: 0xe200
+    volatile uint32_t   RESERVED_4[31];    // Reserved: 0xe204 - 0xe280
+    volatile uint32_t   NVIC_ICPR;        // Offset: 0xe280
 } CORTEX_M0_t;
 
 #define TIMER_BASE      0x40054000
 typedef struct {
     volatile uint32_t   UNUSED[4];        // Unused: 0x00 - 0x0c
     volatile uint32_t   ALARM0;           // 0ffset: 0x10
-    volatile uint32_t   UNUSED1[8];       // Unused: 0x14 - 0x30
+    volatile uint32_t   UNUSED_1[8];       // Unused: 0x14 - 0x30
     volatile uint32_t   INTR;             // 0ffset: 0x34
     volatile uint32_t   INTE;             // 0ffset: 0x38
     volatile uint32_t   INTF;             // 0ffset: 0x3c
@@ -143,7 +149,6 @@ typedef struct{
 static void irqHardFault(void);
 static void irqLoop(void);
 static void irqSysTick(void);
-static void irqSPI0(void);
 
 static void uartTxString(unsigned char* data);
 static void uartTx(unsigned char data);
