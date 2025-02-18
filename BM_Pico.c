@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdbool.h>
 #include "BM_Pico.h"
 
 /*  
@@ -70,11 +71,18 @@ static void init_GPIO() {
     while(RESETS->RESET_DONE & MASK(22) == 0);
 
     // Set GPIO0 and 1 to function 2 (UART0)
-    GPIO0->CTRL = 2;
-    GPIO1->CTRL = 2;
+    GPIO0->CTRL = 0x2;
+    GPIO1->CTRL = 0x2;
 
     GPIO25->CTRL = 0x05;
     SIO->GPIO_OE = MASK(25);  // SIO GPIO OE Register (2.3.1.7)
+
+    /* Configure SPI0 Pins to F1*/
+    GPIO16->CTRL |= 0x1;
+    GPIO17->CTRL |= 0x1;
+    GPIO18->CTRL |= 0x1;
+    GPIO19->CTRL |= 0x1;
+
 }
 
 /*  Unused method to create timer
@@ -193,28 +201,75 @@ static void init_SPI() {
     while(RESETS->RESET_DONE & MASK(16) == 0);
 
     // Init while disabled 
-    SPI0->SSPCR0 = (MASK(4) | MASK(2) | MASK(1) | MASK(0)); // TI Synchronous Serial Frame Format, 8-bit data
-    SPI0->SSPCR1 |= (MASK(0)); // LoopBack mode Enable for Testing 
+    SPI0->SSPCR0 = (MASK(2) | MASK(1) | MASK(0)); // Motorola SPI Frame Format, 8-bit data
+    // SPI0->SSPCR1 |= (MASK(0)); // LoopBack mode Enable for Testing 
 
     /*
         SSPCLK(min) >= 2 x SSPCLKOUT(max) in Master
         SSPCLK(max) <= 254 * 256 * SSPCLKOUT(min) in Master
     */
+
     SPI0->SSPCPSR = MASK_VAL(2, 0); // Configure peak bit rate for master mode (2-254)
     // SCR value is unchanged from 0
 
-    /* Configure clk, MISO and MOSI pins */
+    GPIO17->CTRL |= (MASK_VAL(0x3, 12)); // OEOVER - Enable Output
+    GPIO17->CTRL |= (MASK_VAL(0x3, 8));  // OUTOVER - Drive output high
 
     SPI0->SSPCR1 |= MASK(1); // Enable SSP operation 
 }
 
-static unsigned char spiRx(void) {
-    while((SPI0->SSPSR & MASK(2)) == 0);
-    uartTxString("RECIEVED");
-    return (char) SPI0->SSPDR;
+static void init_LSM6DSOX() {
+
+    /*  LSM6DSOX SPI Config from Datasheet
+        
+        4 wires:
+            - CS    : Chip Select - Enables Serial Port, low at start of transmission and high when finished
+            - SPC   : Serial Port Clock - Controlled by SPI Master, is stopped high when CS is high (no transmission)
+            - SDI   : Serial Data Input - falling edge of SPC
+            - SDO   : Serial Data Output - falling edge of SPC
+
+        Data format (bits) (MSB always first)
+            - 0     : RW bit. 0 = data DI(7:0) is written into device. 1 = Data DI(7:0) from device is read
+                - in latter case, SDO is driven at the start of bit 8
+            - 1-7   : Address AD(6:0). addressed field of indexed register
+            - 8-15  : DO(7:0)/DI(7:0) (r/w modes)
+
+    */
+   
+    /* Initialize LSM6DOSX Accelerometer */
+    
+
+    /* Test setup by reading LSM6DSOX WHO_AM_I register - expected value 0x6C */
 }
 
-static void spiTx(unsigned char data) {
+/*  Method to create an SPI Write request to the LSM6DSOX sensor 
+    16 Bit format: 
+        - RW bit (1 for write request)
+        - 7 bit address frame
+        - 8 bit data frame 
+    LSB for reg must be 0 in this case so that it can be overwritten by data 
+*/
+static short createSPIWriteReq(char reg, char data) {
+    short request = 0x0; // set MSB as 0 - write
+    request = (request << sizeof(char)) | reg;   // add register address (8-14)
+    request = (request << sizeof(char) - 1) | data; // add Data to write (0-7)
+    return request;
+}
+
+static short createSPIReadReq(char reg) {
+    short request = 0x1; // set MSB as 0 - read
+    request = (request << sizeof(char)) | reg;
+    request = (request << sizeof(char) - 1); 
+    return request; 
+}
+
+static unsigned short spiRx(void) {
+    while((SPI0->SSPSR & MASK(2)) == 0);
+    uartTxString("RECIEVED");
+    return (short) SPI0->SSPDR;
+}
+
+static void spiTx(unsigned short data) {
     while((SPI0->SSPSR & MASK(1)) == 0);
     SPI0->SSPDR = (0x00ff & data); // right justify data for data less than 16 bits
 }

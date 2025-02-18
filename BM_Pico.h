@@ -16,7 +16,7 @@
 typedef struct {
     volatile uint32_t   STATUS;           // Status Register  offset: 0x00
     volatile uint32_t   CTRL;             // Control Register  offset: 0x04
-} I0_BANK_t;
+} IO_BANK_t;
 
 #define RESETS_BASE     0x4000c000
 typedef struct {
@@ -118,10 +118,16 @@ typedef struct{
     volatile uint32_t   PRIM;             // 0ffset: 0xc
 } PLL_t;
 
+/* GPIO Pins */
+#define GPIO0 ((IO_BANK_t*) (IO_BANK0_BASE + 0x000)) // UART0 Tx
+#define GPIO1 ((IO_BANK_t*) (IO_BANK0_BASE + 0x008)) // UART0 Rx
+#define GPIO16 ((IO_BANK_t*) (IO_BANK0_BASE + 0x080)) // SPI0 Rx (MISO)
+#define GPIO17 ((IO_BANK_t*) (IO_BANK0_BASE + 0x088)) // SPI0 CSn
+#define GPIO18 ((IO_BANK_t*) (IO_BANK0_BASE + 0x090)) // SPI0 SCK
+#define GPIO19 ((IO_BANK_t*) (IO_BANK0_BASE + 0x098)) // SPI0 Tx (MOSI)
+#define GPIO25 ((IO_BANK_t*) (IO_BANK0_BASE + 0x0c8))
+
 /* Sub System Initializations */
-#define GPIO0 ((I0_BANK_t*) IO_BANK0_BASE)
-#define GPIO1 ((I0_BANK_t*) (IO_BANK0_BASE + 0x08))
-#define GPIO25 ((I0_BANK_t*) (IO_BANK0_BASE + 0xc8))
 
 #define RESETS ((RESETS_t*) RESETS_BASE)
 #define RESET_CLR ((RESETS_t*) (RESETS_BASE | CLR))
@@ -154,7 +160,5 @@ static void uartTxString(unsigned char* data);
 static void uartTx(unsigned char data);
 static unsigned char uartRx(void);
 static void uartTxRegVal(uint32_t regVal);
-
-
 
 #endif
