@@ -356,7 +356,7 @@ __attribute__((used, section( ".boot.entry" ))) int main(void) {
         spiTx(request);
         uartTxString("\r\n");
         uartTxString(" RECIEVING over SPI: ");
-        uartTxRegVal(spiRx());
+        uartTxSerialPacket(spiRx(), spiRx());
         uartTxString("\r\n");
         uartTx(uartRx()); // Wait for input (bloking function)
     }
