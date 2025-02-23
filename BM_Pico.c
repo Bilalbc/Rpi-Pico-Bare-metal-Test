@@ -202,7 +202,7 @@ static void init_SPI() {
 
     // Init while disabled 
     SPI0->SSPCR0 = (MASK(2) | MASK(1) | MASK(0)); // Motorola SPI Frame Format, 8-bit data
-    // SPI0->SSPCR1 |= (MASK(0)); // LoopBack mode Enable for Testing 
+    SPI0->SSPCR1 |= (MASK(0)); // LoopBack mode Enable for Testing 
 
     /*
         SSPCLK(min) >= 2 x SSPCLKOUT(max) in Master
@@ -248,30 +248,32 @@ static void init_LSM6DSOX() {
         - 7 bit address frame
         - 8 bit data frame 
     LSB for reg must be 0 in this case so that it can be overwritten by data 
+
+    helpful resources: https://forums.raspberrypi.com/viewtopic.php?t=95511
+    https://leibton.medium.com/communication-between-lsm6dsox-and-raspberry-pi-through-spi-97fe2e30432b 
+    https://www.digikey.ca/en/maker/projects/raspberry-pi-pico-rp2040-spi-example-with-micropython-and-cc/9706ea0cf3784ee98e35ff49188ee045 
 */
-static short createSPIWriteReq(char reg, char data) {
-    short request = 0x0; // set MSB as 0 - write
-    request = (request << sizeof(char)) | reg;   // add register address (8-14)
-    request = (request << sizeof(char) - 1) | data; // add Data to write (0-7)
-    return request;
+static void createSPIWriteReq(unsigned char* request, short reg, char data) {
+    request[0] = (0x00 | reg); //MSB = 0, register address (8-14)
+    request[1] = data; // add Data to write (0-7)
+    uartTxSerialPacket(request[0],request[1]);
 }
 
-static short createSPIReadReq(char reg) {
-    short request = 0x1; // set MSB as 0 - read
-    request = (request << sizeof(char)) | reg;
-    request = (request << sizeof(char) - 1); 
-    return request; 
+static void createSPIReadReq(unsigned char* request, char reg) {
+    request[0] = 0x80 | reg; //MSB = 1, register address (8-14)
+    request[1] = 0x00; 
 }
 
-static unsigned short spiRx(void) {
+static unsigned char spiRx(void) {
     while((SPI0->SSPSR & MASK(2)) == 0);
-    uartTxString("RECIEVED");
-    return (short) SPI0->SSPDR;
+    return SPI0->SSPDR;
 }
 
-static void spiTx(unsigned short data) {
+static void spiTx(unsigned char* request) {
     while((SPI0->SSPSR & MASK(1)) == 0);
-    SPI0->SSPDR = (0x00ff & data); // right justify data for data less than 16 bits
+    uartTxSerialPacket(request[0],request[1]);
+    SPI0->SSPDR = (0x00ff & request[0]); // right justify data for data less than 16 bits
+    SPI0->SSPDR = (0x00ff & request[1]); // right justify data for data less than 16 bits
 }
 
 static unsigned char uartRx(void) {
@@ -307,6 +309,25 @@ static void uartTxRegVal(uint32_t regVal) {
     hexAsString[8] = '\0'; // add string terminator
     uartTxString(hexAsString);
 }
+
+/*  
+    Method to send the contents of a serial packet over uart
+    Primarily used for debugging
+*/
+static void uartTxSerialPacket(unsigned char packet_upper, unsigned char packet_lower) {
+    char hexChars[] = "0123456789ABCDEF"; // List of hex characters to map with
+    unsigned char packetAsString[5];
+
+    packetAsString[0] = hexChars[(packet_upper & 0xF0) >> 4]; // get the upper nibble
+    packetAsString[1] = hexChars[packet_upper & 0xF]; // get the lower nibble
+
+    packetAsString[2] = hexChars[(packet_lower & 0xF0) >> 4]; // get the upper nibble
+    packetAsString[3] = hexChars[packet_lower & 0xF]; // get the lower nibble
+
+    packetAsString[4] = '\0'; // add string terminator
+    uartTxString(packetAsString);
+}
+
 /*
     Defines Main function for insertion into memory as defined in the Linker Script
 */
@@ -324,13 +345,18 @@ __attribute__((used, section( ".boot.entry" ))) int main(void) {
     CORTEX_M0->SYST_CSR = (MASK(2) | MASK(1) | MASK(0)); // set to processor clock and start count
     uartTxString(start_message);
 
+    // expected:    0b0001 1111
+    // actual:      0b0111 1110
+
+    unsigned char request[2];
+    createSPIWriteReq(request, 0x7f, 0x8e);
     while (1) { 
         uartTxString(" --> ");
         uartTxString(" SENDING 'a' over SPI: ");
-        spiTx('a');
+        spiTx(request);
         uartTxString("\r\n");
         uartTxString(" RECIEVING over SPI: ");
-        uartTx(spiRx());
+        uartTxRegVal(spiRx());
         uartTxString("\r\n");
         uartTx(uartRx()); // Wait for input (bloking function)
     }

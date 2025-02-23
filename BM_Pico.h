@@ -160,5 +160,6 @@ static void uartTxString(unsigned char* data);
 static void uartTx(unsigned char data);
 static unsigned char uartRx(void);
 static void uartTxRegVal(uint32_t regVal);
+static void uartTxSerialPacket(unsigned char packet_upper, unsigned char packet_lower);
 
 #endif
